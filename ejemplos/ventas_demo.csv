@@ -1,0 +1,11 @@
+order_id,product,qty,unit_price,total,customer
+1001,Widget A,3,9.99,29.97,Demo Customer 1
+1002,Widget B,1,15.50,15.50,Demo Customer 2
+1003,Gadget Pro,2,49.90,99.80,Demo Customer 3
+1004,Gizmo Mini,5,4.20,21.00,Demo Customer 1
+1005,Widget A,10,9.99,99.90,Demo Customer 4
+1006,Bracket X,7,12.00,84.00,Demo Customer 2
+1007,Cable USB-C,4,7.50,30.00,Demo Customer 5
+1008,Adapter HDMI,2,18.75,37.50,Demo Customer 3
+1009,Mount Universal,1,29.00,29.00,Demo Customer 1
+1010,Sleeve 13in,6,11.40,68.40,Demo Customer 6

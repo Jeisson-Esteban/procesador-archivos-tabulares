@@ -1,0 +1,13 @@
+Reporte mensual de inventario
+Periodo: enero 2026
+Generado por: sistema demo
+
+sku,description,stock,warehouse,last_update
+SKU-0001,Widget A,142,WH-North,2026-01-31
+SKU-0002,Widget B,87,WH-North,2026-01-31
+SKU-0003,Gadget Pro,33,WH-South,2026-01-30
+SKU-0004,Gizmo Mini,210,WH-North,2026-01-31
+SKU-0005,Bracket X,55,WH-East,2026-01-29
+SKU-0006,Cable USB-C,400,WH-South,2026-01-31
+SKU-0007,Adapter HDMI,128,WH-East,2026-01-31
+SKU-0008,Mount Universal,12,WH-North,2026-01-28
