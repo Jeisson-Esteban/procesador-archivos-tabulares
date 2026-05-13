@@ -12,7 +12,7 @@ La API corriendo localmente en `http://localhost:8010` (`python app.py` o `docke
 
 ```bash
 curl http://localhost:8010/health
-# Esperado: {"status":"ok","service":"file-tools-api"}
+# Esperado: {"status":"ok","service":"procesador-archivos-tabulares"}
 ```
 
 ### /to-json con CSV limpio

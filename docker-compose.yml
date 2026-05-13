@@ -1,7 +1,7 @@
 services:
   api:
     build: .
-    container_name: file-tools-api
+    container_name: procesador-archivos-tabulares
     restart: unless-stopped
     ports:
       - "${PORT:-8010}:8010"

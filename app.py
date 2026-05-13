@@ -1,5 +1,5 @@
 """
-file-tools-api - utilidades sobre archivos CSV y Excel.
+procesador-archivos-tabulares - utilidades sobre archivos CSV y Excel.
 
 Endpoints expuestos desde un solo Flask app. La logica esta separada en dos
 familias internas:
@@ -25,7 +25,7 @@ logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
     format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
 )
-log = logging.getLogger("file-tools-api")
+log = logging.getLogger("procesador-archivos-tabulares")
 
 app = Flask(__name__)
 
@@ -259,7 +259,7 @@ def drop_unnamed_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "service": "file-tools-api"}), 200
+    return jsonify({"status": "ok", "service": "procesador-archivos-tabulares"}), 200
 
 
 @app.route("/to-json", methods=["POST"])
@@ -445,5 +445,5 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8010))
     host = os.environ.get("HOST", "0.0.0.0")
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
-    log.info("starting file-tools-api on %s:%s", host, port)
+    log.info("starting procesador-archivos-tabulares on %s:%s", host, port)
     app.run(host=host, port=port, debug=debug)

@@ -1,6 +1,6 @@
-# file-tools-api
+# procesador-archivos-tabulares
 
-> API en Flask con utilidades robustas para procesar archivos CSV y Excel: conversion, division y extraccion de datos, con deteccion automatica de encoding, delimitador y fila de cabecera.
+> Servicio HTTP que normaliza archivos CSV y Excel desordenados: BOM raros, delimitadores mezclados, cabeceras escondidas. Devuelve JSON, CSV limpio o lotes en ZIP.
 
 ## Que es esto
 
@@ -34,8 +34,8 @@
 
 ```bash
 # 1. Clonar
-git clone https://github.com/Jeisson-Esteban/file-tools-api.git
-cd file-tools-api
+git clone https://github.com/Jeisson-Esteban/procesador-archivos-tabulares.git
+cd procesador-archivos-tabulares
 
 # 2. Crear y activar virtualenv
 python -m venv .venv
@@ -94,7 +94,7 @@ Health check:
 
 ```bash
 curl http://localhost:8010/health
-# {"status":"ok","service":"file-tools-api"}
+# {"status":"ok","service":"procesador-archivos-tabulares"}
 ```
 
 ### Endpoints disponibles
@@ -122,7 +122,7 @@ Cosas que aprendi a las malas y te ahorran tiempo:
 ## Estructura del proyecto
 
 ```
-file-tools-api/
+procesador-archivos-tabulares/
 ├── app.py                <- toda la API en un solo archivo (Flask + parsers)
 ├── ejemplos/             <- archivos de muestra para probar los endpoints
 │   ├── ventas_demo.csv
