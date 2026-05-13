@@ -1,15 +1,8 @@
 """
-procesador-archivos-tabulares - utilidades sobre archivos CSV y Excel.
+procesador-archivos-tabulares - API HTTP para procesar archivos CSV y Excel.
 
-Endpoints expuestos desde un solo Flask app. La logica esta separada en dos
-familias internas:
-
-- `*_csv_*`: parser tolerante para CSV con encoding y delimitador raros.
-- `simple_*`: lectura directa de Excel/CSV detectando la fila de cabecera.
-
-Ojo: muchos archivos reales en el mundo no son CSV bien formados (BOM utf-16,
-delimitadores mezclados, filas vacias antes de la cabecera). El parser intenta
-varias estrategias antes de rendirse.
+Este archivo solo contiene la app Flask y los endpoints. La logica pesada esta
+en `parsers.py` (decoding/lectura) y `transformers.py` (limpieza de DataFrames).
 """
 
 import io
@@ -17,9 +10,11 @@ import logging
 import os
 import zipfile
 
-import magic
 import pandas as pd
 from flask import Flask, Response, jsonify, request, send_file
+
+from parsers import read_file_to_df
+from transformers import clean_dataframe, detect_header_row_index, drop_unnamed_columns
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -33,186 +28,10 @@ DEFAULT_CHUNK_SIZE = int(os.environ.get("DEFAULT_CHUNK_SIZE", 5000))
 MAX_CONTENT_LENGTH_MB = int(os.environ.get("MAX_CONTENT_LENGTH_MB", 50))
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH_MB * 1024 * 1024
 
-CSV_ENCODINGS = ["utf-8", "utf-16", "latin-1", "cp1252"]
-CSV_DELIMITERS = [",", ";", "\t", "|"]
-EXCEL_EXTENSIONS = {".xlsx", ".xls", ".xlsm"}
-
 
 # ---------------------------------------------------------------------------
-# Parser tolerante para CSV / Excel (deteccion automatica de cabecera)
+# Helpers de request
 # ---------------------------------------------------------------------------
-
-def detect_header_row_index(df: pd.DataFrame) -> int:
-    """Busca la fila que probablemente contiene los encabezados.
-
-    Algunos archivos vienen con metadata arriba (titulos, fechas, blancos) antes
-    de la cabecera real. Se asume que la cabecera es la fila con mas celdas no
-    vacias dentro de las primeras 150.
-    """
-    if df.empty:
-        return 0
-    col_counts = []
-    max_valid_cols = 0
-    for i, row in df.head(150).iterrows():
-        valid_in_row = row.apply(lambda x: pd.notnull(x) and str(x).strip() != "").sum()
-        col_counts.append((i, valid_in_row))
-        if valid_in_row > max_valid_cols:
-            max_valid_cols = valid_in_row
-    if max_valid_cols <= 1:
-        return 0
-    threshold = max_valid_cols * 0.8
-    for idx, count in col_counts:
-        if count >= threshold:
-            return idx
-    return 0
-
-
-def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Aplica deteccion de cabecera + normalizacion de celdas."""
-    if df is None or df.empty:
-        return df
-
-    header_idx = detect_header_row_index(df)
-    raw_headers = df.iloc[header_idx].tolist()
-    headers = []
-    for i, h in enumerate(raw_headers):
-        if pd.notnull(h):
-            h_str = str(h).replace("\x00", "").strip().replace("\n", " ").replace("\r", " ")
-        else:
-            h_str = ""
-        if not h_str or h_str.lower() in {"nan", "none", "unknown"}:
-            headers.append(f"Column_{i + 1}")
-        else:
-            headers.append(h_str)
-
-    body = df.iloc[header_idx + 1:].copy()
-    if not body.empty:
-        body.columns = headers[: body.shape[1]]
-    body.reset_index(drop=True, inplace=True)
-
-    def cell_clean(val):
-        if pd.isnull(val):
-            return None
-        s = str(val).replace("\x00", "").replace("\n", " ").replace("\r", " ").strip()
-        # Excel a veces serializa numeros como texto prefijado con apostrofo.
-        if s.startswith("'"):
-            s = s[1:]
-        return s or None
-
-    for col in body.columns:
-        body[col] = body[col].apply(cell_clean)
-    return body
-
-
-def decode_file_content(file_bytes: bytes):
-    """Prueba BOM, utf-8, utf-16, latin-1 y cp1252 hasta que alguno funcione."""
-    if not file_bytes:
-        return "", "empty"
-    if file_bytes.startswith(b"\xff\xfe") or file_bytes.startswith(b"\xfe\xff"):
-        try:
-            data = file_bytes + b"\x00" if len(file_bytes) % 2 else file_bytes
-            return data.decode("utf-16"), "utf-16"
-        except Exception:
-            pass
-    if file_bytes.startswith(b"\xef\xbb\xbf"):
-        try:
-            return file_bytes.decode("utf-8-sig"), "utf-8-sig"
-        except Exception:
-            pass
-    for encoding in CSV_ENCODINGS:
-        try:
-            return file_bytes.decode(encoding), encoding
-        except Exception:
-            continue
-    return None, None
-
-
-def detect_csv_properties(text: str):
-    """Estima el delimitador mas probable contando columnas por linea."""
-    lines = text.splitlines()
-    if not lines:
-        return ",", 1
-    sample = lines[:50]
-    best_delimiter, max_cols = ",", 1
-    for sep in CSV_DELIMITERS:
-        current_max = max((len(line.split(sep)) for line in sample), default=0)
-        if current_max > max_cols:
-            max_cols, best_delimiter = current_max, sep
-    return best_delimiter, max_cols
-
-
-def try_read_csv(file_bytes: bytes):
-    text, _encoding = decode_file_content(file_bytes)
-    if text is None:
-        return None, "decoding failed"
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    best_delimiter, max_cols = detect_csv_properties(text)
-    col_names = range(max_cols)
-    strategies = [
-        {"sep": best_delimiter, "names": col_names, "header": None},
-        {"sep": None, "header": None},
-        {"sep": "\t", "names": col_names, "header": None},
-        {"sep": best_delimiter, "names": col_names, "header": None, "quoting": 3},
-    ]
-    for kwargs in strategies:
-        try:
-            return pd.read_csv(io.StringIO(text), engine="python", **kwargs), None
-        except Exception:
-            continue
-    return None, "all csv parsing strategies failed"
-
-
-def read_file_to_df(file_bytes: bytes, filename: str):
-    """Decide si el archivo es Excel o CSV y devuelve un DataFrame crudo (sin cabecera)."""
-    mime = magic.from_buffer(file_bytes, mime=True)
-    extension = os.path.splitext(filename)[1].lower()
-    looks_excel = (
-        "spreadsheet" in mime
-        or "excel" in mime
-        or "zip" in mime
-        or "octet-stream" in mime
-        or extension in EXCEL_EXTENSIONS
-    )
-    errors = []
-
-    # UTF-16 puro: pandas a veces se atraganta, mejor decodificar antes.
-    if file_bytes.startswith(b"\xff\xfe") or file_bytes.startswith(b"\xfe\xff"):
-        try:
-            data = file_bytes + b"\x00" if len(file_bytes) % 2 else file_bytes
-            text = data.decode("utf-16").replace("\x00", "")
-            text = text.replace("\r\n", "\n").replace("\r", "\n")
-            best_sep, max_cols = detect_csv_properties(text)
-            col_names = range(max_cols)
-            for sep in [best_sep, "\t", ",", ";", "|"]:
-                try:
-                    df = pd.read_csv(io.StringIO(text), sep=sep, names=col_names, header=None, engine="c")
-                    if df is not None and df.shape[1] > 1 and not df.empty:
-                        return df, None
-                except Exception:
-                    continue
-        except Exception as e:
-            errors.append(f"utf16: {e}")
-
-    if looks_excel:
-        for engine in ["openpyxl", "xlrd", None]:
-            try:
-                kwargs = {"header": None}
-                if engine:
-                    kwargs["engine"] = engine
-                df = pd.read_excel(io.BytesIO(file_bytes), **kwargs)
-                if df is not None and not df.empty:
-                    return df, None
-            except Exception as e:
-                errors.append(f"excel({engine}): {e}")
-
-    df, error = try_read_csv(file_bytes)
-    if df is not None and not df.empty:
-        return df, None
-    if error:
-        errors.append(f"csv: {error}")
-
-    return None, f"unable to decode. mime: {mime}, errors: {'; '.join(errors)}"
-
 
 def get_uploaded_file():
     """Validacion comun de uploads. Devuelve (file, error_response, status)."""
@@ -225,6 +44,7 @@ def get_uploaded_file():
 
 
 def process_upload_to_clean_df():
+    """Lee el archivo subido y devuelve un DataFrame ya limpio (cabecera detectada)."""
     file, err, status = get_uploaded_file()
     if err:
         return None, err, status
@@ -233,11 +53,6 @@ def process_upload_to_clean_df():
     if df is None:
         return None, jsonify({"error": f"Processing failed: {error}"}), 422
     return clean_dataframe(df), None, 200
-
-
-def drop_unnamed_columns(df: pd.DataFrame) -> pd.DataFrame:
-    df = df[[c for c in df.columns if "Unnamed" not in str(c)]]
-    return df.where(pd.notnull(df), None)
 
 
 # ---------------------------------------------------------------------------
@@ -403,8 +218,6 @@ def extract_data():
         return err, status
     content = file.read()
     try:
-        # Reusar el parser tolerante: maneja delimitadores raros, BOM utf-16,
-        # filas de metadata con menos columnas que la cabecera, etc.
         df_raw, error = read_file_to_df(content, file.filename)
         if df_raw is None:
             return jsonify({"error": f"Processing failed: {error}"}), 422
@@ -417,7 +230,6 @@ def extract_data():
             if cleaned:
                 metadata.append(cleaned)
 
-        # Promover la fila detectada a cabecera.
         raw_headers = df_raw.iloc[header_idx].tolist()
         headers = [str(h).strip() if pd.notna(h) and str(h).strip() else f"Column_{i + 1}"
                    for i, h in enumerate(raw_headers)]

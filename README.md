@@ -59,10 +59,10 @@ cp .env.example .env
 
 ```bash
 # Modo desarrollo (Flask):
-python app.py
+python main.py
 
 # Modo produccion (gunicorn):
-gunicorn --bind 0.0.0.0:8010 --workers 2 --timeout 60 app:app
+gunicorn --bind 0.0.0.0:8010 --workers 2 --timeout 60 main:app
 
 # Con Docker Compose:
 docker compose up --build
@@ -129,7 +129,9 @@ Cosas que aprendi a las malas y te ahorran tiempo:
 
 ```
 procesador-archivos-tabulares/
-├── app.py                <- toda la API en un solo archivo (Flask + parsers)
+├── main.py               <- Flask app y endpoints HTTP
+├── parsers.py            <- decoding y lectura tolerante de CSV/Excel (BOM, delimitadores, mime)
+├── transformers.py       <- deteccion de cabecera, limpieza de DataFrames
 ├── ejemplos/             <- archivos de muestra para probar los endpoints
 │   ├── ventas_demo.csv
 │   └── reporte_con_metadata.csv
@@ -141,6 +143,8 @@ procesador-archivos-tabulares/
 ├── README.md
 └── LICENSE
 ```
+
+**Por que tres archivos planos en vez de uno**: `main.py` solo se encarga del transporte HTTP (rutas, validar uploads, devolver respuestas). `parsers.py` es la pelea con archivos mal formados. `transformers.py` es como dejar el DataFrame limpio. Si manana hay que cambiar un detalle del parser (ej. anadir soporte de `.parquet`), tocas un solo archivo sin leer 450 lineas de mezcla. Misma logica si hay que cambiar el shape de respuesta de un endpoint.
 
 ## Variables de entorno
 

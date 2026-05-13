@@ -17,4 +17,4 @@ EXPOSE 8010
 ENV PORT=8010
 
 # Gunicorn con 2 workers y 60s de timeout: archivos grandes tardan en procesarse.
-CMD ["gunicorn", "--bind", "0.0.0.0:8010", "--workers", "2", "--timeout", "60", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8010", "--workers", "2", "--timeout", "60", "main:app"]
