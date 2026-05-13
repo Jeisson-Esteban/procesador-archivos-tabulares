@@ -49,6 +49,12 @@ cp .env.example .env
 # editar .env si necesitas cambiar puerto, log level, etc.
 ```
 
+> **Ojo con python-magic en Windows / Mac**: la libreria `python-magic` necesita `libmagic` instalada en el sistema operativo. El Dockerfile ya la trae, pero si corres local:
+> - **Linux**: `sudo apt install libmagic1`
+> - **Mac**: `brew install libmagic`
+> - **Windows**: en lugar de `python-magic` instala `pip install python-magic-bin` (trae el binario empaquetado).
+
+
 ### Correrla
 
 ```bash
@@ -127,8 +133,6 @@ procesador-archivos-tabulares/
 ├── ejemplos/             <- archivos de muestra para probar los endpoints
 │   ├── ventas_demo.csv
 │   └── reporte_con_metadata.csv
-├── tests/                <- requests de ejemplo y golden outputs
-│   └── README.md
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt

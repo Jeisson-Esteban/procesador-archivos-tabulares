@@ -235,19 +235,6 @@ def process_upload_to_clean_df():
     return clean_dataframe(df), None, 200
 
 
-# ---------------------------------------------------------------------------
-# Variante simple para /extract-data
-# ---------------------------------------------------------------------------
-
-def simple_find_header_index(df: pd.DataFrame, scan_limit: int = 50) -> int:
-    max_cols, header_idx = 0, 0
-    for i in range(min(len(df), scan_limit)):
-        count = sum(1 for v in df.iloc[i] if pd.notna(v) and str(v).strip() != "")
-        if count > max_cols:
-            max_cols, header_idx = count, i
-    return header_idx
-
-
 def drop_unnamed_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df[[c for c in df.columns if "Unnamed" not in str(c)]]
     return df.where(pd.notnull(df), None)
@@ -383,21 +370,27 @@ def extract_json_from_zip_or_csv():
     ext = os.path.splitext(file.filename.lower())[1]
 
     def clean_row(d):
-        return {k: v.strip() for k, v in d.items() if str(v).strip() != ""}
+        return {k: (v.strip() if isinstance(v, str) else v)
+                for k, v in d.items()
+                if v is not None and str(v).strip() != ""}
 
-    def csv_bytes_to_json(b):
-        df = pd.read_csv(io.BytesIO(b), dtype=str, keep_default_na=False)
-        return [clean_row(r) for r in df.to_dict(orient="records")]
+    def csv_bytes_to_json(b, name="archivo.csv"):
+        # Usa el parser tolerante para soportar CSV con metadata arriba, BOM raros, etc.
+        df, error = read_file_to_df(b, name)
+        if df is None:
+            return {"error": f"CSV parse failed: {error}"}
+        clean = clean_dataframe(df)
+        return [clean_row(r) for r in clean.to_dict(orient="records")]
 
     data = file.read()
     if ext == ".csv":
-        return jsonify(csv_bytes_to_json(data))
+        return jsonify(csv_bytes_to_json(data, file.filename))
     if ext == ".zip":
         result = {}
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             for name in z.namelist():
                 if name.endswith(".csv"):
-                    result[name] = csv_bytes_to_json(z.read(name))
+                    result[name] = csv_bytes_to_json(z.read(name), name)
         return jsonify(result)
     return jsonify({"error": "Formato no soportado"}), 400
 
@@ -409,32 +402,36 @@ def extract_data():
     if err:
         return err, status
     content = file.read()
-    name = file.filename.lower()
     try:
-        if name.endswith(".csv"):
-            df_raw = pd.read_csv(io.BytesIO(content), header=None, sep=None, engine="python")
-        else:
-            df_raw = pd.read_excel(io.BytesIO(content), header=None)
+        # Reusar el parser tolerante: maneja delimitadores raros, BOM utf-16,
+        # filas de metadata con menos columnas que la cabecera, etc.
+        df_raw, error = read_file_to_df(content, file.filename)
+        if df_raw is None:
+            return jsonify({"error": f"Processing failed: {error}"}), 422
 
-        header_idx = simple_find_header_index(df_raw)
+        header_idx = detect_header_row_index(df_raw)
+
         metadata = []
         for _, row in df_raw.iloc[:header_idx].iterrows():
             cleaned = [str(v).strip() for v in row if pd.notna(v) and str(v).strip()]
             if cleaned:
                 metadata.append(cleaned)
 
-        if name.endswith(".csv"):
-            df = pd.read_csv(io.BytesIO(content), header=header_idx)
-        else:
-            df = pd.read_excel(io.BytesIO(content), header=header_idx)
-        df = drop_unnamed_columns(df)
+        # Promover la fila detectada a cabecera.
+        raw_headers = df_raw.iloc[header_idx].tolist()
+        headers = [str(h).strip() if pd.notna(h) and str(h).strip() else f"Column_{i + 1}"
+                   for i, h in enumerate(raw_headers)]
+        body = df_raw.iloc[header_idx + 1:].copy()
+        body.columns = headers[: body.shape[1]]
+        body = drop_unnamed_columns(body)
+        body = body.where(pd.notnull(body), None)
 
         return jsonify({
             "filename": file.filename,
             "detected_header_row": header_idx + 1,
             "metadata_header": metadata,
-            "headers": list(df.columns),
-            "data": df.to_dict(orient="records"),
+            "headers": list(body.columns),
+            "data": body.to_dict(orient="records"),
         })
     except Exception as e:
         log.exception("extract-data failed")
